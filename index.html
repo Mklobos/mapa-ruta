@@ -7680,6 +7680,101 @@
         
     
                 marker_e08f64fdbdceded2ebb936c1703e23de.setIcon(div_icon_e2987bee486366f0d07125a40e58de7f);
+// --- SISTEMA DE AVISO ACÚSTICO Y VISUAL DE SEÑALES ---
+
+// 1. Crear el emisor de sonido nativo (pitido) para no depender de archivos de audio externos
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playAlertSound() {
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    
+    oscillator.type = 'sine';       // Sonido tipo "beep" limpio
+    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // Tono agudo
+    gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);        // Volumen
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.3); // Duración: 300 milisegundos
+}
+
+// 2. Crear el contenedor visual flotante para la señal en la pantalla del móvil
+const alertContainer = document.createElement('div');
+alertContainer.id = 'signal-alert';
+alertContainer.style = `
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255, 255, 255, 0.95);
+    border: 3px solid #ff0000;
+    border-radius: 15px;
+    padding: 15px;
+    z-index: 9999;
+    text-align: center;
+    box-shadow: 0px 4px 15px rgba(0,0,0,0.3);
+    display: none;
+    font-family: Arial, sans-serif;
+    min-width: 200px;
+`;
+document.body.appendChild(alertContainer);
+
+// 3. Función matemática para calcular distancia real en metros (Fórmula de Haversine)
+function getDistanceInMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000; // Radio de la Tierra en metros
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+// 4. Registrar qué señales ya han avisado para no pitar en bucle si vas despacio
+let alertedSignals = new Set();
+
+// 5. Vincular el sistema al movimiento real del GPS
+map.on('locationfound', function(e) {
+    const userLat = e.latitude;
+    const userLng = e.longitude;
+    let signalClose = false;
+
+    // Recorremos las señales de tu JSON (asumiendo que tus marcadores están en un array llamado 'features' o similar)
+    // NOTA: Ajusta 'lista_de_señales' por el nombre de la variable donde guardas tus datos en el script
+    lista_de_señales.forEach((signal, index) => {
+        const signalLat = signal.geometry.coordinates[1];
+        const signalLng = signal.geometry.coordinates[0];
+        const signalType = signal.properties.tipo_senal || "Señal de Tráfico"; 
+        
+        const distance = getDistanceInMeters(userLat, userLng, signalLat, signalLng);
+
+        // Si estamos a menos de 20 metros y no ha avisado ya en este viaje
+        if (distance <= 20 && !alertedSignals.has(index)) {
+            alertedSignals.add(index);
+            signalClose = true;
+            
+            // Disparar aviso acústico
+            playAlertSound();
+            
+            // Disparar aviso visual en pantalla
+            alertContainer.innerHTML = `
+                <b style="font-size: 14px; color: #333;">PRÓXIMA SEÑAL A ${Math.round(distance)}m</b><br>
+                <div style="font-size: 32px; margin: 10px 0;">🛑</div>
+                <span style="font-size: 16px; font-weight: bold; color: #cc0000;">${signalType}</span>
+            `;
+            alertContainer.style.display = 'block';
+            
+            // Ocultar el aviso visual automáticamente a los 4 segundos de pasarla
+            setTimeout(() => {
+                alertContainer.style.style.display = 'none';
+            }, 4000);
+        }
+    });
+});
             
 </script>
 </html>
